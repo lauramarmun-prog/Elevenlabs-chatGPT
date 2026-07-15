@@ -1,3 +1,6 @@
+Exit code: 0
+Wall time: 1.1 seconds
+Output:
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -34,8 +37,10 @@ const MAX_CACHED_AUDIO_BYTES = boundedInteger(
 const MAX_SINGLE_AUDIO_BYTES = Math.min(MAX_CACHED_AUDIO_BYTES, 25 * 1024 * 1024);
 const MAX_GENERATIONS_PER_MINUTE = boundedInteger(process.env.MAX_GENERATIONS_PER_MINUTE, 10, 1, 120);
 const MAX_CONCURRENT_GENERATIONS = boundedInteger(process.env.MAX_CONCURRENT_GENERATIONS, 2, 1, 20);
-const HAS_PERSISTENT_DATA_DIR = Boolean(process.env.DATA_DIR?.trim());
-const DATA_DIR = resolve(process.env.DATA_DIR?.trim() || "data");
+const PERSISTENT_DATA_DIR =
+  process.env.DATA_DIR?.trim() || process.env.RAILWAY_VOLUME_MOUNT_PATH?.trim() || undefined;
+const HAS_PERSISTENT_DATA_DIR = Boolean(PERSISTENT_DATA_DIR);
+const DATA_DIR = resolve(PERSISTENT_DATA_DIR || "data");
 const PREFERENCE_FILE = resolve(DATA_DIR, "voice-preference.json");
 
 const widgetHtml = readFileSync(
@@ -665,3 +670,4 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`${APP_NAME} listening on port ${PORT}`);
   console.log("Private MCP endpoint configured.");
 });
+
