@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ElevenLabs audio</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --ink: #17211b;
+        --muted: #657068;
+        --surface: rgba(250, 252, 250, 0.96);
+        --line: rgba(41, 62, 49, 0.13);
+        --accent: #7257d8;
+        --accent-2: #4b8a72;
+        --shadow: 0 18px 55px rgba(36, 43, 38, 0.12);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; }
+      body {
+        padding: 12px;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 8% 0%, rgba(126, 96, 224, 0.18), transparent 38%),
+          radial-gradient(circle at 100% 100%, rgba(79, 149, 118, 0.18), transparent 42%),
+          transparent;
+      }
+
+      .player {
+        width: min(100%, 520px);
+        margin: 0 auto;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .topline { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 42px;
+        height: 42px;
+        border-radius: 14px;
+        color: white;
+        background: linear-gradient(145deg, var(--accent), var(--accent-2));
+        box-shadow: 0 8px 24px rgba(103, 82, 194, 0.26);
+      }
+      .mark svg { width: 21px; height: 21px; }
+      .copy { min-width: 0; flex: 1; }
+      h1 { margin: 0; font-size: 15px; line-height: 1.3; letter-spacing: -0.01em; }
+      p { margin: 3px 0 0; color: var(--muted); font-size: 12px; line-height: 1.35; }
+      audio { display: block; width: 100%; height: 42px; }
+      .actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 13px; }
+      .expiry { color: var(--muted); font-size: 11px; }
+      .download {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 34px;
+        padding: 0 14px;
+        border-radius: 999px;
+        color: white;
+        background: #1f2923;
+        font-size: 12px;
+        font-weight: 650;
+        text-decoration: none;
+      }
+      .download:hover { opacity: 0.88; }
+      .empty { padding: 14px 0 6px; color: var(--muted); font-size: 13px; text-align: center; }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ink: #edf4ef;
+          --muted: #a7b3aa;
+          --surface: rgba(26, 32, 28, 0.96);
+          --line: rgba(224, 240, 229, 0.12);
+          --shadow: 0 18px 55px rgba(0, 0, 0, 0.25);
+        }
+        .download { color: #17211b; background: #edf4ef; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="player">
+      <div class="topline">
+        <div class="mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M5 9v6M9 6v12M13 4v16M17 7v10M21 10v4" />
+          </svg>
+        </div>
+        <div class="copy">
+          <h1 id="title">ElevenLabs audio</h1>
+          <p id="details">Your generated voice is ready.</p>
+        </div>
+      </div>
+      <div id="content" class="empty">Preparing the player…</div>
+    </main>
+
+    <script type="module">
+      const content = document.querySelector("#content");
+      const details = document.querySelector("#details");
+      let lastUrl = "";
+
+      function safeAudioPayload(result) {
+        const audio = result?._meta?.audio ?? result?.meta?.audio ?? window.openai?.toolResponseMetadata?.audio;
+        const output = result?.structuredContent ?? window.openai?.toolOutput;
+        if (!audio || typeof audio.url !== "string" || !audio.url.startsWith("https://") && !audio.url.startsWith("http://")) {
+          return null;
+        }
+        return {
+          url: audio.url,
+          mimeType: typeof audio.mimeType === "string" ? audio.mimeType : "audio/mpeg",
+          fileName: typeof audio.fileName === "string" ? audio.fileName : "elevenlabs-audio.mp3",
+          modelId: typeof output?.model_id === "string" ? output.model_id : "ElevenLabs",
+          expiresAt: typeof output?.expires_at === "string" ? output.expires_at : null,
+        };
+      }
+
+      function render(result) {
+        const audio = safeAudioPayload(result);
+        if (!audio || audio.url === lastUrl) return;
+        lastUrl = audio.url;
+        content.className = "";
+        content.replaceChildren();
+
+        const player = document.createElement("audio");
+        player.controls = true;
+        player.preload = "metadata";
+        const source = document.createElement("source");
+        source.src = audio.url;
+        source.type = audio.mimeType;
+        player.append(source);
+
+        const actions = document.createElement("div");
+        actions.className = "actions";
+        const expiry = document.createElement("span");
+        expiry.className = "expiry";
+        expiry.textContent = audio.expiresAt
+          ? `Available until ${new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(audio.expiresAt))}`
+          : "Temporary audio";
+        const download = document.createElement("a");
+        download.className = "download";
+        download.href = audio.url;
+        download.download = audio.fileName;
+        download.target = "_blank";
+        download.rel = "noopener noreferrer";
+        download.textContent = "Download MP3";
+        actions.append(expiry, download);
+        content.append(player, actions);
+        details.textContent = audio.modelId;
+      }
+
+      window.addEventListener("message", (event) => {
+        if (event.source !== window.parent) return;
+        const message = event.data;
+        if (!message || message.jsonrpc !== "2.0") return;
+        if (message.method === "ui/notifications/tool-result") render(message.params);
+      }, { passive: true });
+
+      window.addEventListener("openai:set_globals", (event) => {
+        const globals = event.detail?.globals;
+        render({ structuredContent: globals?.toolOutput, _meta: globals?.toolResponseMetadata });
+      }, { passive: true });
+
+      render({
+        structuredContent: window.openai?.toolOutput,
+        _meta: window.openai?.toolResponseMetadata,
+      });
+    </script>
+  </body>
+</html>
