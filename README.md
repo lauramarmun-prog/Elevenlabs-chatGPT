@@ -1,5 +1,5 @@
 Exit code: 0
-Wall time: 1.2 seconds
+Wall time: 1 seconds
 Output:
 # ElevenLabs Audio MCP for ChatGPT
 
@@ -34,7 +34,7 @@ The public template should define these service variables:
 | `AUDIO_TTL_SECONDS` | No | `900` |
 | `DATA_DIR` | No | Not needed on Railway; attached volumes are detected automatically |
 
-When the Railway template has been published, add its **Deploy on Railway** button here using the template code supplied by Railway.
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/1hEUB9?utm_medium=integration&utm_source=template&utm_campaign=elevenlabs-chatgpt-mcp)
 
 ### Create the Railway template
 
