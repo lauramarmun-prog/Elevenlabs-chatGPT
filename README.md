@@ -1,3 +1,6 @@
+Exit code: 0
+Wall time: 1.2 seconds
+Output:
 # ElevenLabs Audio MCP for ChatGPT
 
 A small, self-hosted MCP app that lets ChatGPT turn text into ElevenLabs speech and return a playable, downloadable MP3 inside the conversation.
@@ -29,7 +32,7 @@ The public template should define these service variables:
 | `ELEVENLABS_VOICE_ID` | No | Optional default voice ID |
 | `ELEVENLABS_MODEL_ID` | No | `eleven_multilingual_v2` |
 | `AUDIO_TTL_SECONDS` | No | `900` |
-| `DATA_DIR` | No | `/data` when the template includes a volume |
+| `DATA_DIR` | No | Not needed on Railway; attached volumes are detected automatically |
 
 When the Railway template has been published, add its **Deploy on Railway** button here using the template code supplied by Railway.
 
@@ -39,7 +42,7 @@ When the Railway template has been published, add its **Deploy on Railway** butt
 2. In Railway, create a project from the repository and enable public HTTP networking.
 3. Add `ELEVENLABS_API_KEY` as a required template variable.
 4. Add `MCP_PATH_SECRET` with the template function `${{ secret(48) }}`.
-5. Recommended: attach a small volume at `/data` and set `DATA_DIR=/data`. The person deploying the template does not need to configure either one.
+5. Recommended: attach a small volume at `/data`. Railway exposes its path automatically, so the person deploying the template does not need to configure it.
 6. Generate a template from the project and publish it.
 7. Copy Railway's template code into the Deploy button in this README.
 
@@ -97,7 +100,7 @@ ChatGPT requires a public HTTPS address, so use a tunnel for local testing and a
 | `MAX_CACHED_AUDIO_BYTES` | `52428800` | Maximum total in-memory audio cache. |
 | `MAX_GENERATIONS_PER_MINUTE` | `10` | Per-instance burst limit protecting ElevenLabs credits. |
 | `MAX_CONCURRENT_GENERATIONS` | `2` | Maximum simultaneous TTS requests. |
-| `DATA_DIR` | local `data/` folder | Preference storage directory. Mount a Railway volume here for persistence across deploys. |
+| `DATA_DIR` | Railway volume or local `data/` | Optional preference storage override. Railway volumes are detected automatically through `RAILWAY_VOLUME_MOUNT_PATH`. |
 | `PUBLIC_BASE_URL` | auto-detected | Optional canonical public origin. |
 | `PORT` | `3000` | HTTP port; Railway supplies this automatically. |
 
@@ -134,3 +137,4 @@ MIT — see [`LICENSE`](./LICENSE).
 ## Español
 
 Esta plantilla crea una instancia privada del conector para cada persona. Railway solicita su propia clave de ElevenLabs, genera un camino MCP secreto y entrega el audio mediante un reproductor integrado en ChatGPT. La voz no es una variable obligatoria: el modelo puede mostrar las voces, preguntar cuál prefiere la persona y guardar su elección mediante `save_preferred_voice`. No hay una cuenta central ni una base de datos compartida.
+
