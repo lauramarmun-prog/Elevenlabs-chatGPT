@@ -15,13 +15,13 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 
 const APP_NAME = "ElevenLabs Audio for ChatGPT";
-const APP_VERSION = "0.1.0";
+const APP_VERSION = "0.2.0";
 const TEMPLATE_URI = "ui://widget/elevenlabs-audio-v1.html";
 const ELEVENLABS_API_BASE = (process.env.ELEVENLABS_API_BASE ?? "https://api.elevenlabs.io").replace(/\/$/, "");
 const ELEVENLABS_API_KEY = requiredEnv("ELEVENLABS_API_KEY");
 const MCP_PATH_SECRET = validatePathSecret(requiredEnv("MCP_PATH_SECRET"));
 const DEFAULT_VOICE_ID = process.env.ELEVENLABS_VOICE_ID?.trim() || undefined;
-const DEFAULT_MODEL_ID = process.env.ELEVENLABS_MODEL_ID?.trim() || "eleven_multilingual_v2";
+const DEFAULT_MODEL_ID = process.env.ELEVENLABS_MODEL_ID?.trim() || "eleven_v3";
 const PORT = boundedInteger(process.env.PORT, 3000, 1, 65_535);
 const MAX_TEXT_LENGTH = boundedInteger(process.env.MAX_TEXT_LENGTH, 5_000, 1, 40_000);
 const AUDIO_TTL_SECONDS = boundedInteger(process.env.AUDIO_TTL_SECONDS, 900, 60, 86_400);
@@ -82,6 +82,14 @@ const voiceSettingsSchema = z
     speed: z.number().min(0.7).max(1.2).optional().describe("Speech speed from 0.7 to 1.2."),
   })
   .optional();
+
+const SPEECH_PROMPTING_GUIDANCE = `Before calling generate_speech, prepare the text as a spoken performance while preserving the user's meaning, language, facts, names, and desired wording.
+- Write for the ear: use natural conversational phrasing, contractions where appropriate, and punctuation that creates human rhythm.
+- Expand numbers, dates, times, currencies, symbols, URLs, abbreviations, and units into words as they should be spoken in the user's locale, unless verbatim wording is important.
+- For eleven_v3, use a few context-appropriate audio tags such as [warmly], [curious], [whispers], [sighs], or [laughs] when they genuinely improve the performance. Match tags to the voice and requested mood; do not overcrowd the script or add sound effects the user did not request.
+- For eleven_v3 pauses, use punctuation, em dashes, or ellipses. Never use SSML <break> tags with eleven_v3.
+- If the user asks for an exact quotation, legal text, code, or verbatim reading, preserve the words and only add safe delivery punctuation or tags that do not change what is spoken.
+- Prefer eleven_v3 for expressive, lifelike speech. Respect an explicitly requested model, and use a v2.5 model when low latency matters more than expressiveness.`;
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -254,7 +262,7 @@ function createMcpServer(origin: string): McpServer {
     { name: "elevenlabs-audio", version: APP_VERSION },
     {
       instructions:
-        "When no voice is named, call get_preferred_voice. If none is configured, call list_voices, ask the user which voice they want, and call save_preferred_voice only after they choose. Use generate_speech only when the user explicitly wants audio. Generated audio is temporary.",
+        `When no voice is named, call get_preferred_voice. If none is configured, call list_voices, ask the user which voice they want, and call save_preferred_voice only after they choose. Use generate_speech only when the user explicitly wants audio. Generated audio is temporary.\n\n${SPEECH_PROMPTING_GUIDANCE}`,
     },
   );
 
@@ -472,15 +480,27 @@ function createMcpServer(origin: string): McpServer {
     {
       title: "Generate speech with ElevenLabs",
       description:
-        "Use this when the user explicitly asks to turn text into spoken audio with an ElevenLabs voice. This consumes the deployer's ElevenLabs credits.",
+        `Use this when the user explicitly asks to turn text into spoken audio with an ElevenLabs voice. Before calling it, shape the input into natural spoken language using the server's speech prompting guidance. This consumes the deployer's ElevenLabs credits.`,
       inputSchema: {
-        text: z.string().min(1).max(MAX_TEXT_LENGTH).describe("The exact text to speak."),
+        text: z
+          .string()
+          .min(1)
+          .max(MAX_TEXT_LENGTH)
+          .describe(
+            "The final performance-ready text to speak. Preserve meaning and requested wording, but use natural punctuation, spoken-form normalization, and restrained Eleven v3 audio tags when appropriate.",
+          ),
         voice_id: z
           .string()
           .min(1)
           .optional()
           .describe("ElevenLabs voice ID. Omit only when the deployment has a default voice."),
-        model_id: z.string().min(1).optional().describe("ElevenLabs text-to-speech model ID."),
+        model_id: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "ElevenLabs text-to-speech model ID. Prefer eleven_v3 for expressive, lifelike speech; omit to use the deployment default.",
+          ),
         language_code: z.string().length(2).optional().describe("Optional ISO 639-1 language code, such as en or es."),
         output_format: outputFormatSchema.default("mp3_44100_128").describe("MP3 quality and bitrate."),
         voice_settings: voiceSettingsSchema,
@@ -667,4 +687,3 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`${APP_NAME} listening on port ${PORT}`);
   console.log("Private MCP endpoint configured.");
 });
-

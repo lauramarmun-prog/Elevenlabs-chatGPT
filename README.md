@@ -18,6 +18,19 @@ Each person deploys their own private instance and supplies their own ElevenLabs
 - A Railway health check and configuration-as-code file.
 - No analytics, database, user accounts, or permanent audio storage.
 
+## Natural speech prompting
+
+The MCP gives ChatGPT server-wide guidance based on ElevenLabs' official speech prompting recommendations. Before generating audio, the model is instructed to:
+
+- preserve the user's meaning, language, names, facts, and requested wording;
+- shape ordinary prose into natural spoken rhythm with conversational phrasing and punctuation;
+- write numbers, dates, symbols, abbreviations, URLs, and units as they should be pronounced;
+- use only a few context-appropriate Eleven v3 audio tags when they improve the delivery;
+- use punctuation, em dashes, or ellipses for Eleven v3 pauses instead of unsupported SSML break tags;
+- keep quotations, legal text, code, and explicitly verbatim readings faithful.
+
+Eleven v3 is the default because it offers the most expressive delivery controls. A caller can still request another supported model, and a Railway deployment can change the default through `ELEVENLABS_MODEL_ID`.
+
 ## Deploy on Railway
 
 The public template should define these service variables:
@@ -27,7 +40,7 @@ The public template should define these service variables:
 | `ELEVENLABS_API_KEY` | Yes | Ask the person deploying the template |
 | `MCP_PATH_SECRET` | Yes | Generate with `${{ secret(48) }}` |
 | `ELEVENLABS_VOICE_ID` | No | Optional default voice ID |
-| `ELEVENLABS_MODEL_ID` | No | `eleven_multilingual_v2` |
+| `ELEVENLABS_MODEL_ID` | No | `eleven_v3` |
 | `AUDIO_TTL_SECONDS` | No | `900` |
 | `DATA_DIR` | No | Not needed on Railway; attached volumes are detected automatically |
 
@@ -91,7 +104,7 @@ ChatGPT requires a public HTTPS address, so use a tunnel for local testing and a
 | `ELEVENLABS_API_KEY` | — | Required ElevenLabs API key. |
 | `MCP_PATH_SECRET` | — | Required 24–128 character URL-safe secret. |
 | `ELEVENLABS_VOICE_ID` | — | Default voice when a tool call omits `voice_id`. |
-| `ELEVENLABS_MODEL_ID` | `eleven_multilingual_v2` | Default TTS model. |
+| `ELEVENLABS_MODEL_ID` | `eleven_v3` | Default TTS model. Eleven v3 gives the model the most expressive delivery controls. |
 | `MAX_TEXT_LENGTH` | `5000` | Maximum characters accepted per generation. |
 | `AUDIO_TTL_SECONDS` | `900` | How long generated audio remains available. |
 | `MAX_CACHED_AUDIO_BYTES` | `52428800` | Maximum total in-memory audio cache. |
@@ -122,6 +135,8 @@ The smoke test uses a local mock of the ElevenLabs API. It does not consume cred
 - [Build an MCP server](https://developers.openai.com/apps-sdk/build/mcp-server/)
 - [Build a ChatGPT UI](https://developers.openai.com/apps-sdk/build/chatgpt-ui/)
 - [ElevenLabs create speech API](https://elevenlabs.io/docs/api-reference/text-to-speech/convert)
+- [ElevenLabs text-to-speech best practices](https://elevenlabs.io/docs/overview/capabilities/text-to-speech/best-practices)
+- [Prompting Eleven v3](https://elevenlabs.io/docs/best-practices/prompting)
 - [ElevenLabs list voices API](https://elevenlabs.io/docs/api-reference/voices/search)
 - [Railway templates](https://docs.railway.com/templates/create)
 
@@ -134,4 +149,3 @@ MIT — see [`LICENSE`](./LICENSE).
 ## Español
 
 Esta plantilla crea una instancia privada del conector para cada persona. Railway solicita su propia clave de ElevenLabs, genera un camino MCP secreto y entrega el audio mediante un reproductor integrado en ChatGPT. La voz no es una variable obligatoria: el modelo puede mostrar las voces, preguntar cuál prefiere la persona y guardar su elección mediante `save_preferred_voice`. No hay una cuenta central ni una base de datos compartida.
-

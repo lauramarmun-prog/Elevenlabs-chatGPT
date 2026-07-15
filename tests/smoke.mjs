@@ -9,6 +9,7 @@ const pathSecret = "smoke_test_secret_1234567890abcdef";
 const fakeAudio = Buffer.from("ID3-fake-mp3-audio");
 const dataDir = await mkdtemp(join(tmpdir(), "elevenlabs-mcp-smoke-"));
 let lastSpeechPath = "";
+let lastSpeechBody = null;
 
 const mockApi = createServer((req, res) => {
   if (req.headers["xi-api-key"] !== "test-api-key") {
@@ -43,8 +44,13 @@ const mockApi = createServer((req, res) => {
 
   if (req.method === "POST" && req.url?.startsWith("/v1/text-to-speech/")) {
     lastSpeechPath = req.url;
-    res.writeHead(200, { "Content-Type": "audio/mpeg", "Content-Length": fakeAudio.length });
-    res.end(fakeAudio);
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      lastSpeechBody = JSON.parse(body);
+      res.writeHead(200, { "Content-Type": "audio/mpeg", "Content-Length": fakeAudio.length });
+      res.end(fakeAudio);
+    });
     return;
   }
 
@@ -115,6 +121,8 @@ try {
     clientInfo: { name: "smoke-test", version: "1.0.0" },
   });
   assert.equal(initialized.result.serverInfo.name, "elevenlabs-audio");
+  assert.match(initialized.result.instructions, /natural conversational phrasing/);
+  assert.match(initialized.result.instructions, /Never use SSML <break> tags with eleven_v3/);
 
   const tools = await mcpRequest("tools/list");
   assert.deepEqual(
@@ -149,7 +157,9 @@ try {
     arguments: { text: "Hello from the smoke test.", output_format: "mp3_44100_128" },
   });
   assert.equal(speech.result.structuredContent.status, "ready");
+  assert.equal(speech.result.structuredContent.model_id, "eleven_v3");
   assert.match(lastSpeechPath, /\/v1\/text-to-speech\/new-voice/);
+  assert.equal(lastSpeechBody.model_id, "eleven_v3");
   assert.match(speech.result._meta.audio.url, /\/audio\//);
 
   const audioResponse = await fetch(speech.result._meta.audio.url);
