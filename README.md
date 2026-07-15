@@ -1,6 +1,3 @@
-Exit code: 0
-Wall time: 0.9 seconds
-Output:
 # ElevenLabs Audio MCP for ChatGPT
 
 A small, self-hosted MCP app that lets ChatGPT turn text into ElevenLabs speech and return a playable, downloadable MP3 inside the conversation.
