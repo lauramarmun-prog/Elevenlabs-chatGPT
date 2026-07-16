@@ -53,7 +53,7 @@
       .copy { min-width: 0; flex: 1; }
       h1 { margin: 0; font-size: 15px; line-height: 1.3; letter-spacing: -0.01em; }
       p { margin: 3px 0 0; color: var(--muted); font-size: 12px; line-height: 1.35; }
-      audio { display: block; width: 100%; height: 42px; }
+      audio { display: block; width: 100%; min-height: 44px; }
       .actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 13px; }
       .expiry { color: var(--muted); font-size: 11px; }
       .download {
@@ -71,6 +71,7 @@
       }
       .download:hover { opacity: 0.88; }
       .empty { padding: 14px 0 6px; color: var(--muted); font-size: 13px; text-align: center; }
+      .error { padding: 12px; border: 1px solid var(--line); border-radius: 14px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 
       @media (prefers-color-scheme: dark) {
         :root {
@@ -97,7 +98,7 @@
           <p id="details">Your generated voice is ready.</p>
         </div>
       </div>
-      <div id="content" class="empty">Preparing the player…</div>
+      <div id="content" class="empty" role="status">Preparing the player…</div>
     </main>
 
     <script type="module">
@@ -130,10 +131,8 @@
         const player = document.createElement("audio");
         player.controls = true;
         player.preload = "metadata";
-        const source = document.createElement("source");
-        source.src = audio.url;
-        source.type = audio.mimeType;
-        player.append(source);
+        player.playsInline = true;
+        player.src = audio.url;
 
         const actions = document.createElement("div");
         actions.className = "actions";
@@ -148,10 +147,18 @@
         download.download = audio.fileName;
         download.target = "_blank";
         download.rel = "noopener noreferrer";
-        download.textContent = "Download MP3";
+        download.textContent = "Open MP3";
+        player.addEventListener("error", () => {
+          details.textContent = "The embedded player could not load on this device.";
+          const message = document.createElement("div");
+          message.className = "error";
+          message.textContent = "Tap Open MP3 to play the audio directly.";
+          if (!content.querySelector(".error")) content.prepend(message);
+        }, { once: true });
         actions.append(expiry, download);
         content.append(player, actions);
         details.textContent = audio.modelId;
+        player.load();
       }
 
       window.addEventListener("message", (event) => {

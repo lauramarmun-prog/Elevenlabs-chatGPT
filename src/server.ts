@@ -15,8 +15,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 
 const APP_NAME = "ElevenLabs Audio for ChatGPT";
-const APP_VERSION = "0.2.0";
-const TEMPLATE_URI = "ui://widget/elevenlabs-audio-v1.html";
+const APP_VERSION = "0.2.1";
+const TEMPLATE_URI = "ui://widget/elevenlabs-audio-v2.html";
 const ELEVENLABS_API_BASE = (process.env.ELEVENLABS_API_BASE ?? "https://api.elevenlabs.io").replace(/\/$/, "");
 const ELEVENLABS_API_KEY = requiredEnv("ELEVENLABS_API_KEY");
 const MCP_PATH_SECRET = validatePathSecret(requiredEnv("MCP_PATH_SECRET"));
@@ -618,12 +618,66 @@ function serveAudio(req: IncomingMessage, res: ServerResponse, url: URL): boolea
     return true;
   }
 
-  res.writeHead(200, {
+  const commonHeaders = {
     "Content-Type": entry.contentType,
-    "Content-Length": entry.bytes.length,
     "Content-Disposition": `inline; filename="${entry.fileName}"`,
     "Cache-Control": "private, max-age=60",
     "X-Content-Type-Options": "nosniff",
+    "Accept-Ranges": "bytes",
+  };
+
+  const range = req.headers.range;
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+    if (!match) {
+      res.writeHead(416, { ...commonHeaders, "Content-Range": `bytes */${entry.bytes.length}` }).end();
+      return true;
+    }
+
+    const rawStart = match[1] ?? "";
+    const rawEnd = match[2] ?? "";
+    let start: number;
+    let end: number;
+
+    if (!rawStart) {
+      const suffixLength = Number(rawEnd);
+      if (!Number.isInteger(suffixLength) || suffixLength <= 0) {
+        res.writeHead(416, { ...commonHeaders, "Content-Range": `bytes */${entry.bytes.length}` }).end();
+        return true;
+      }
+      start = Math.max(0, entry.bytes.length - suffixLength);
+      end = entry.bytes.length - 1;
+    } else {
+      start = Number(rawStart);
+      end = rawEnd ? Number(rawEnd) : entry.bytes.length - 1;
+    }
+
+    if (
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < 0 ||
+      start >= entry.bytes.length ||
+      end < start
+    ) {
+      res.writeHead(416, { ...commonHeaders, "Content-Range": `bytes */${entry.bytes.length}` }).end();
+      return true;
+    }
+
+    end = Math.min(end, entry.bytes.length - 1);
+    const chunk = entry.bytes.subarray(start, end + 1);
+    res.writeHead(206, {
+      ...commonHeaders,
+      "Content-Length": chunk.length,
+      "Content-Range": `bytes ${start}-${end}/${entry.bytes.length}`,
+    });
+    if (req.method === "HEAD") res.end();
+    else res.end(chunk);
+    return true;
+  }
+
+  res.writeHead(200, {
+    ...commonHeaders,
+    "Content-Length": entry.bytes.length,
   });
   if (req.method === "HEAD") res.end();
   else res.end(entry.bytes);

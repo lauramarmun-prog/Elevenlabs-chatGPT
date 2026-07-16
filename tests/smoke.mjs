@@ -164,10 +164,19 @@ try {
 
   const audioResponse = await fetch(speech.result._meta.audio.url);
   assert.equal(audioResponse.status, 200);
+  assert.equal(audioResponse.headers.get("accept-ranges"), "bytes");
   assert.deepEqual(Buffer.from(await audioResponse.arrayBuffer()), fakeAudio);
+
+  const partialAudioResponse = await fetch(speech.result._meta.audio.url, {
+    headers: { Range: "bytes=0-2" },
+  });
+  assert.equal(partialAudioResponse.status, 206);
+  assert.equal(partialAudioResponse.headers.get("content-range"), `bytes 0-2/${fakeAudio.length}`);
+  assert.deepEqual(Buffer.from(await partialAudioResponse.arrayBuffer()), fakeAudio.subarray(0, 3));
 
   const resources = await mcpRequest("resources/list");
   assert.equal(resources.result.resources[0].mimeType, "text/html;profile=mcp-app");
+  assert.match(resources.result.resources[0].uri, /elevenlabs-audio-v2\.html$/);
 
   console.log("Smoke test passed: health, MCP tools, saved voice preference, ElevenLabs mock, signed audio, and widget resource.");
 } finally {
