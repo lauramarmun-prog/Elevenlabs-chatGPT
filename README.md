@@ -13,6 +13,7 @@ Each person deploys their own private instance and supplies their own ElevenLabs
 - `get_preferred_voice`: checks whether the person has already chosen a default voice.
 - `save_preferred_voice`: validates and saves a voice after the person chooses it in chat.
 - A compact audio player rendered inside ChatGPT through the MCP Apps bridge.
+- A native temporary MP3 attachment as a mobile-safe fallback when a host cannot initialize the widget.
 - Short-lived, signed audio URLs.
 - A secret, unguessable MCP path to protect the deployer's ElevenLabs credits.
 - A Railway health check and configuration-as-code file.

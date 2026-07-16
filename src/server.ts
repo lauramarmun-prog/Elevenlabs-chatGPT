@@ -15,7 +15,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 
 const APP_NAME = "ElevenLabs Audio for ChatGPT";
-const APP_VERSION = "0.2.1";
+const APP_VERSION = "0.2.2";
 const TEMPLATE_URI = "ui://widget/elevenlabs-audio-v2.html";
 const ELEVENLABS_API_BASE = (process.env.ELEVENLABS_API_BASE ?? "https://api.elevenlabs.io").replace(/\/$/, "");
 const ELEVENLABS_API_KEY = requiredEnv("ELEVENLABS_API_KEY");
@@ -174,7 +174,7 @@ function safeEqual(left: string, right: string): boolean {
 
 function signedAudioUrl(origin: string, id: string, expiresAt: number): string {
   const signature = signAudio(id, expiresAt);
-  return `${origin}/${MCP_PATH_SECRET}/audio/${id}?expires=${expiresAt}&signature=${signature}`;
+  return `${origin}/audio/${id}?expires=${expiresAt}&signature=${signature}`;
 }
 
 async function withGenerationLimit<T>(operation: () => Promise<T>): Promise<T> {
@@ -568,7 +568,16 @@ function createMcpServer(origin: string): McpServer {
         content: [
           {
             type: "text",
-            text: `The ElevenLabs audio is ready in the player and remains available until ${expiresAtIso}.`,
+            text: `The ElevenLabs audio is ready. Use the player or the attached temporary MP3, available until ${expiresAtIso}.`,
+          },
+          {
+            type: "resource_link",
+            uri: audioUrl,
+            name: cached.fileName,
+            title: "Open ElevenLabs audio",
+            description: `Temporary MP3 available until ${expiresAtIso}.`,
+            mimeType: contentType,
+            size: bytes.length,
           },
         ],
         _meta: {
@@ -596,8 +605,14 @@ function setCors(res: ServerResponse): void {
 }
 
 function serveAudio(req: IncomingMessage, res: ServerResponse, url: URL): boolean {
-  const prefix = `/${MCP_PATH_SECRET}/audio/`;
-  if (!url.pathname.startsWith(prefix)) return false;
+  const publicPrefix = "/audio/";
+  const legacyPrefix = `/${MCP_PATH_SECRET}/audio/`;
+  const prefix = url.pathname.startsWith(publicPrefix)
+    ? publicPrefix
+    : url.pathname.startsWith(legacyPrefix)
+      ? legacyPrefix
+      : null;
+  if (!prefix) return false;
   if (req.method !== "GET" && req.method !== "HEAD") {
     res.writeHead(405, { Allow: "GET, HEAD" }).end("Method Not Allowed");
     return true;

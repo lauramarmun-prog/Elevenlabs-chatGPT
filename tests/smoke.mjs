@@ -161,6 +161,12 @@ try {
   assert.match(lastSpeechPath, /\/v1\/text-to-speech\/new-voice/);
   assert.equal(lastSpeechBody.model_id, "eleven_v3");
   assert.match(speech.result._meta.audio.url, /\/audio\//);
+  assert.doesNotMatch(speech.result._meta.audio.url, new RegExp(`/${pathSecret}/`));
+  const audioResource = speech.result.content.find((item) => item.type === "resource_link");
+  assert(audioResource, "generate_speech should expose a native resource_link fallback");
+  assert.equal(audioResource.uri, speech.result._meta.audio.url);
+  assert.equal(audioResource.mimeType, "audio/mpeg");
+  assert.equal(audioResource.size, fakeAudio.length);
 
   const audioResponse = await fetch(speech.result._meta.audio.url);
   assert.equal(audioResponse.status, 200);
