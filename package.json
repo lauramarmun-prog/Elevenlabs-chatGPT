@@ -1,6 +1,6 @@
 {
   "name": "elevenlabs-chatgpt-mcp",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "A self-hosted ElevenLabs text-to-speech MCP app for ChatGPT, ready for Railway.",
   "type": "module",
   "private": true,

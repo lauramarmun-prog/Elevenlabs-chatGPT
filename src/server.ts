@@ -15,12 +15,12 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 
 const APP_NAME = "ElevenLabs Audio for ChatGPT";
-const APP_VERSION = "0.2.3";
+const APP_VERSION = "0.2.4";
 const TEMPLATE_URI = "ui://widget/elevenlabs-audio-v3.html";
 const ELEVENLABS_API_BASE = (process.env.ELEVENLABS_API_BASE ?? "https://api.elevenlabs.io").replace(/\/$/, "");
 const ELEVENLABS_API_KEY = requiredEnv("ELEVENLABS_API_KEY");
 const MCP_PATH_SECRET = validatePathSecret(requiredEnv("MCP_PATH_SECRET"));
-const DEFAULT_VOICE_ID = process.env.ELEVENLABS_VOICE_ID?.trim() || undefined;
+const DEFAULT_VOICE_ID = requiredEnv("ELEVENLABS_VOICE_ID");
 const DEFAULT_MODEL_ID = process.env.ELEVENLABS_MODEL_ID?.trim() || "eleven_v3";
 const PORT = boundedInteger(process.env.PORT, 3000, 1, 65_535);
 const MAX_TEXT_LENGTH = boundedInteger(process.env.MAX_TEXT_LENGTH, 5_000, 1, 40_000);

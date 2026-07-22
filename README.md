@@ -2,7 +2,7 @@
 
 A small, self-hosted MCP app that lets ChatGPT turn text into ElevenLabs speech and return a playable, downloadable MP3 inside the conversation.
 
-Each person deploys their own private instance and supplies their own ElevenLabs API key. The key stays in Railway and is never sent to ChatGPT or the audio widget.
+Each person deploys their own private instance and supplies their own ElevenLabs API key and preferred voice ID. The key stays in Railway and is never sent to ChatGPT or the audio widget.
 
 > This is an independent, community-built project. It is not affiliated with or endorsed by ElevenLabs or OpenAI.
 
@@ -40,7 +40,7 @@ The public template should define these service variables:
 | --- | --- | --- |
 | `ELEVENLABS_API_KEY` | Yes | Ask the person deploying the template |
 | `MCP_PATH_SECRET` | Yes | Generate with `${{ secret(48) }}` |
-| `ELEVENLABS_VOICE_ID` | No | `XMt3VxtTut6sSVNxac5P` (Clau; can be replaced or cleared) |
+| `ELEVENLABS_VOICE_ID` | Yes | Ask the person deploying the template |
 | `ELEVENLABS_MODEL_ID` | No | `eleven_v3` |
 | `AUDIO_TTL_SECONDS` | No | `900` |
 | `DATA_DIR` | No | Not needed on Railway; attached volumes are detected automatically |
@@ -51,12 +51,11 @@ The public template should define these service variables:
 
 1. Publish this repository on GitHub.
 2. In Railway, create a project from the repository and enable public HTTP networking.
-3. Add `ELEVENLABS_API_KEY` as a required template variable.
+3. Add `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` as required template variables, both with empty values that the person deploying must fill in.
 4. Add `MCP_PATH_SECRET` with the template function `${{ secret(48) }}`.
-5. Add the optional default `ELEVENLABS_VOICE_ID` with `XMt3VxtTut6sSVNxac5P`. A deployer can replace or clear it and choose another voice later in chat.
-6. Recommended: attach a small volume at `/data`. Railway exposes its path automatically, so the person deploying the template does not need to configure it.
-7. Generate a template from the project and publish it.
-8. Copy Railway's template code into the Deploy button in this README.
+5. Recommended: attach a small volume at `/data`. Railway exposes its path automatically, so the person deploying the template does not need to configure it.
+6. Generate a template from the project and publish it.
+7. Copy Railway's template code into the Deploy button in this README.
 
 Railway reads [`railway.json`](./railway.json), runs the TypeScript build, starts the server, and checks `/health` before completing the deployment.
 
@@ -74,7 +73,7 @@ Then:
 2. Create a new developer-mode app/connector.
 3. Paste the private MCP URL above.
 4. Add the app to a new conversation.
-5. Try: “Help me choose an ElevenLabs voice and remember my choice.” The model can list the voices, ask which one you prefer, and save it after you answer.
+5. The voice entered during deployment is already the default. You can still try: “Help me choose another ElevenLabs voice and remember my choice.” The model can list the voices, ask which one you prefer, and save it after you answer.
 6. Later, simply ask: “Read this aloud: Hello world.” The saved voice is used automatically.
 
 Keep the full MCP URL private. Anyone who obtains it could consume the ElevenLabs credits attached to that deployment. Rotate `MCP_PATH_SECRET` immediately if the URL is exposed.
@@ -105,7 +104,7 @@ ChatGPT requires a public HTTPS address, so use a tunnel for local testing and a
 | --- | --- | --- |
 | `ELEVENLABS_API_KEY` | — | Required ElevenLabs API key. |
 | `MCP_PATH_SECRET` | — | Required 24–128 character URL-safe secret. |
-| `ELEVENLABS_VOICE_ID` | `XMt3VxtTut6sSVNxac5P` in the Railway template | Optional default voice when a tool call omits `voice_id`; users can replace, clear, or override it through the saved preference. |
+| `ELEVENLABS_VOICE_ID` | — | Required ElevenLabs voice ID used when a tool call omits `voice_id`; users can override it through the saved preference. |
 | `ELEVENLABS_MODEL_ID` | `eleven_v3` | Default TTS model. Eleven v3 gives the model the most expressive delivery controls. |
 | `MAX_TEXT_LENGTH` | `5000` | Maximum characters accepted per generation. |
 | `AUDIO_TTL_SECONDS` | `900` | How long generated audio remains available. |
@@ -150,4 +149,4 @@ MIT — see [`LICENSE`](./LICENSE).
 
 ## Español
 
-Esta plantilla crea una instancia privada del conector para cada persona. Railway solicita su propia clave de ElevenLabs, genera un camino MCP secreto y entrega el audio mediante un reproductor integrado en ChatGPT. La voz no es una variable obligatoria: el modelo puede mostrar las voces, preguntar cuál prefiere la persona y guardar su elección mediante `save_preferred_voice`. No hay una cuenta central ni una base de datos compartida.
+Esta plantilla crea una instancia privada del conector para cada persona. Railway solicita su propia clave de ElevenLabs y el ID de la voz que quiere usar, genera un camino MCP secreto y entrega el audio mediante un reproductor integrado en ChatGPT. La voz es obligatoria durante el despliegue, aunque después el modelo puede mostrar otras voces y guardar una elección distinta mediante `save_preferred_voice`. No hay una cuenta central ni una base de datos compartida.

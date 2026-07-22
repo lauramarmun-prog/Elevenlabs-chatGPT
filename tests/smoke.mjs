@@ -11,6 +11,32 @@ const dataDir = await mkdtemp(join(tmpdir(), "elevenlabs-mcp-smoke-"));
 let lastSpeechPath = "";
 let lastSpeechBody = null;
 
+const missingVoiceEnv = {
+  ...process.env,
+  ELEVENLABS_API_KEY: "test-api-key",
+  MCP_PATH_SECRET: pathSecret,
+};
+delete missingVoiceEnv.ELEVENLABS_VOICE_ID;
+const missingVoiceChild = spawn(process.execPath, ["dist/server.js"], {
+  env: missingVoiceEnv,
+  stdio: ["ignore", "pipe", "pipe"],
+});
+let missingVoiceOutput = "";
+missingVoiceChild.stdout.on("data", (chunk) => (missingVoiceOutput += chunk));
+missingVoiceChild.stderr.on("data", (chunk) => (missingVoiceOutput += chunk));
+const missingVoiceExit = await new Promise((resolve, reject) => {
+  const timeout = setTimeout(() => {
+    missingVoiceChild.kill();
+    reject(new Error("Server did not reject a missing ELEVENLABS_VOICE_ID."));
+  }, 5_000);
+  missingVoiceChild.once("exit", (code) => {
+    clearTimeout(timeout);
+    resolve(code);
+  });
+});
+assert.notEqual(missingVoiceExit, 0);
+assert.match(missingVoiceOutput, /ELEVENLABS_VOICE_ID is required/);
+
 const mockApi = createServer((req, res) => {
   if (req.headers["xi-api-key"] !== "test-api-key") {
     res.writeHead(401, { "Content-Type": "application/json" }).end(JSON.stringify({ detail: "bad key" }));
