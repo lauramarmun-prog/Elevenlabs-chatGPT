@@ -107,15 +107,45 @@
       let lastUrl = "";
 
       function safeAudioPayload(result) {
-        const audio = result?._meta?.audio ?? result?.meta?.audio ?? window.openai?.toolResponseMetadata?.audio;
-        const output = result?.structuredContent ?? window.openai?.toolOutput;
+        const metadata = result?.toolResponseMetadata ?? window.openai?.toolResponseMetadata;
+        const envelopes = [
+          result,
+          result?.mcp_tool_result,
+          result?.call_tool_result,
+          metadata,
+          metadata?.mcp_tool_result,
+          metadata?.call_tool_result,
+        ].filter(Boolean);
+        const output =
+          envelopes.map((item) => item?.structuredContent).find(Boolean) ??
+          result?.structuredContent ??
+          window.openai?.toolOutput;
+        const metadataAudio = envelopes
+          .map((item) => item?._meta?.audio ?? item?.meta?.audio ?? item?.audio)
+          .find((item) => item && typeof item.url === "string");
+        const linkedAudio = envelopes
+          .flatMap((item) => Array.isArray(item?.content) ? item.content : [])
+          .find((item) => item?.type === "resource_link" && typeof item.uri === "string" && item.mimeType?.startsWith("audio/"));
+        const audio = metadataAudio ?? output?.audio ?? (linkedAudio ? {
+          url: linkedAudio.uri,
+          mimeType: linkedAudio.mimeType,
+          fileName: linkedAudio.name,
+        } : null);
         if (!audio || typeof audio.url !== "string" || !audio.url.startsWith("https://") && !audio.url.startsWith("http://")) {
           return null;
         }
         return {
           url: audio.url,
-          mimeType: typeof audio.mimeType === "string" ? audio.mimeType : "audio/mpeg",
-          fileName: typeof audio.fileName === "string" ? audio.fileName : "elevenlabs-audio.mp3",
+          mimeType: typeof audio.mimeType === "string"
+            ? audio.mimeType
+            : typeof audio.mime_type === "string"
+              ? audio.mime_type
+              : "audio/mpeg",
+          fileName: typeof audio.fileName === "string"
+            ? audio.fileName
+            : typeof audio.file_name === "string"
+              ? audio.file_name
+              : "elevenlabs-audio.mp3",
           modelId: typeof output?.model_id === "string" ? output.model_id : "ElevenLabs",
           expiresAt: typeof output?.expires_at === "string" ? output.expires_at : null,
         };
@@ -170,13 +200,23 @@
 
       window.addEventListener("openai:set_globals", (event) => {
         const globals = event.detail?.globals;
-        render({ structuredContent: globals?.toolOutput, _meta: globals?.toolResponseMetadata });
+        render({
+          structuredContent: globals?.toolOutput,
+          toolResponseMetadata: globals?.toolResponseMetadata,
+        });
       }, { passive: true });
 
       render({
         structuredContent: window.openai?.toolOutput,
-        _meta: window.openai?.toolResponseMetadata,
+        toolResponseMetadata: window.openai?.toolResponseMetadata,
       });
+
+      window.setTimeout(() => {
+        if (lastUrl) return;
+        content.className = "error";
+        content.textContent = "The player has not received the audio yet. Use the attached temporary MP3 in the conversation.";
+        details.textContent = "Mobile-safe MP3 fallback available";
+      }, 4000);
     </script>
   </body>
 </html>

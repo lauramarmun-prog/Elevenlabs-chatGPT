@@ -13,7 +13,7 @@ Each person deploys their own private instance and supplies their own ElevenLabs
 - `get_preferred_voice`: checks whether the person has already chosen a default voice.
 - `save_preferred_voice`: validates and saves a voice after the person chooses it in chat.
 - A compact audio player rendered inside ChatGPT through the MCP Apps bridge.
-- A native temporary MP3 attachment as a mobile-safe fallback when a host cannot initialize the widget.
+- A native temporary MP3 resource plus a direct signed link as a mobile-safe fallback when a host cannot initialize the widget.
 - Short-lived, signed audio URLs.
 - A secret, unguessable MCP path to protect the deployer's ElevenLabs credits.
 - A Railway health check and configuration-as-code file.
@@ -40,7 +40,7 @@ The public template should define these service variables:
 | --- | --- | --- |
 | `ELEVENLABS_API_KEY` | Yes | Ask the person deploying the template |
 | `MCP_PATH_SECRET` | Yes | Generate with `${{ secret(48) }}` |
-| `ELEVENLABS_VOICE_ID` | No | Optional default voice ID |
+| `ELEVENLABS_VOICE_ID` | No | `XMt3VxtTut6sSVNxac5P` (Clau; can be replaced or cleared) |
 | `ELEVENLABS_MODEL_ID` | No | `eleven_v3` |
 | `AUDIO_TTL_SECONDS` | No | `900` |
 | `DATA_DIR` | No | Not needed on Railway; attached volumes are detected automatically |
@@ -53,9 +53,10 @@ The public template should define these service variables:
 2. In Railway, create a project from the repository and enable public HTTP networking.
 3. Add `ELEVENLABS_API_KEY` as a required template variable.
 4. Add `MCP_PATH_SECRET` with the template function `${{ secret(48) }}`.
-5. Recommended: attach a small volume at `/data`. Railway exposes its path automatically, so the person deploying the template does not need to configure it.
-6. Generate a template from the project and publish it.
-7. Copy Railway's template code into the Deploy button in this README.
+5. Add the optional default `ELEVENLABS_VOICE_ID` with `XMt3VxtTut6sSVNxac5P`. A deployer can replace or clear it and choose another voice later in chat.
+6. Recommended: attach a small volume at `/data`. Railway exposes its path automatically, so the person deploying the template does not need to configure it.
+7. Generate a template from the project and publish it.
+8. Copy Railway's template code into the Deploy button in this README.
 
 Railway reads [`railway.json`](./railway.json), runs the TypeScript build, starts the server, and checks `/health` before completing the deployment.
 
@@ -104,7 +105,7 @@ ChatGPT requires a public HTTPS address, so use a tunnel for local testing and a
 | --- | --- | --- |
 | `ELEVENLABS_API_KEY` | — | Required ElevenLabs API key. |
 | `MCP_PATH_SECRET` | — | Required 24–128 character URL-safe secret. |
-| `ELEVENLABS_VOICE_ID` | — | Default voice when a tool call omits `voice_id`. |
+| `ELEVENLABS_VOICE_ID` | `XMt3VxtTut6sSVNxac5P` in the Railway template | Optional default voice when a tool call omits `voice_id`; users can replace, clear, or override it through the saved preference. |
 | `ELEVENLABS_MODEL_ID` | `eleven_v3` | Default TTS model. Eleven v3 gives the model the most expressive delivery controls. |
 | `MAX_TEXT_LENGTH` | `5000` | Maximum characters accepted per generation. |
 | `AUDIO_TTL_SECONDS` | `900` | How long generated audio remains available. |

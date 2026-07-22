@@ -158,6 +158,9 @@ try {
   });
   assert.equal(speech.result.structuredContent.status, "ready");
   assert.equal(speech.result.structuredContent.model_id, "eleven_v3");
+  assert.equal(speech.result.structuredContent.audio.url, speech.result._meta.audio.url);
+  assert.equal(speech.result.structuredContent.audio.mime_type, "audio/mpeg");
+  assert.equal(speech.result.structuredContent.audio.size_bytes, fakeAudio.length);
   assert.match(lastSpeechPath, /\/v1\/text-to-speech\/new-voice/);
   assert.equal(lastSpeechBody.model_id, "eleven_v3");
   assert.match(speech.result._meta.audio.url, /\/audio\//);
@@ -182,7 +185,11 @@ try {
 
   const resources = await mcpRequest("resources/list");
   assert.equal(resources.result.resources[0].mimeType, "text/html;profile=mcp-app");
-  assert.match(resources.result.resources[0].uri, /elevenlabs-audio-v2\.html$/);
+  assert.match(resources.result.resources[0].uri, /elevenlabs-audio-v3\.html$/);
+  const widget = await mcpRequest("resources/read", { uri: resources.result.resources[0].uri });
+  assert.deepEqual(widget.result.contents[0]._meta["openai/widgetCSP"].connect_domains, [
+    `http://127.0.0.1:${appPort}`,
+  ]);
 
   console.log("Smoke test passed: health, MCP tools, saved voice preference, ElevenLabs mock, signed audio, and widget resource.");
 } finally {

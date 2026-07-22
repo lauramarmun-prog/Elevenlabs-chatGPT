@@ -15,8 +15,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 
 const APP_NAME = "ElevenLabs Audio for ChatGPT";
-const APP_VERSION = "0.2.2";
-const TEMPLATE_URI = "ui://widget/elevenlabs-audio-v2.html";
+const APP_VERSION = "0.2.3";
+const TEMPLATE_URI = "ui://widget/elevenlabs-audio-v3.html";
 const ELEVENLABS_API_BASE = (process.env.ELEVENLABS_API_BASE ?? "https://api.elevenlabs.io").replace(/\/$/, "");
 const ELEVENLABS_API_KEY = requiredEnv("ELEVENLABS_API_KEY");
 const MCP_PATH_SECRET = validatePathSecret(requiredEnv("MCP_PATH_SECRET"));
@@ -281,6 +281,12 @@ function createMcpServer(origin: string): McpServer {
               resourceDomains: [origin],
             },
           },
+          "openai/widgetPrefersBorder": true,
+          "openai/widgetDomain": origin,
+          "openai/widgetCSP": {
+            connect_domains: [origin],
+            resource_domains: [origin],
+          },
           "openai/widgetDescription":
             "A compact audio player for speech generated with the deployer's ElevenLabs account.",
         },
@@ -512,6 +518,12 @@ function createMcpServer(origin: string): McpServer {
         output_format: z.string(),
         character_count: z.number().int(),
         expires_at: z.string(),
+        audio: z.object({
+          url: z.string().url(),
+          mime_type: z.string(),
+          file_name: z.string(),
+          size_bytes: z.number().int(),
+        }),
       },
       annotations: {
         readOnlyHint: false,
@@ -564,11 +576,17 @@ function createMcpServer(origin: string): McpServer {
           output_format,
           character_count: text.length,
           expires_at: expiresAtIso,
+          audio: {
+            url: audioUrl,
+            mime_type: contentType,
+            file_name: cached.fileName,
+            size_bytes: bytes.length,
+          },
         },
         content: [
           {
             type: "text",
-            text: `The ElevenLabs audio is ready. Use the player or the attached temporary MP3, available until ${expiresAtIso}.`,
+            text: `The ElevenLabs audio is ready. Open or download the temporary MP3 here: ${audioUrl} (available until ${expiresAtIso}).`,
           },
           {
             type: "resource_link",
