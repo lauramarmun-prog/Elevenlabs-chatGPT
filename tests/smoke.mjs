@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runInNewContext } from "node:vm";
 
 const pathSecret = "smoke_test_secret_1234567890abcdef";
 const fakeAudio = Buffer.from("ID3-fake-mp3-audio");
@@ -137,12 +138,17 @@ async function mcpRequest(method, params = {}) {
   return JSON.parse(body);
 }
 
+async function flushBridgeTasks() {
+  await Promise.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
 try {
   await waitForHealth();
 
   const health = await fetch(`http://127.0.0.1:${appPort}/health`).then((response) => response.json());
   assert.equal(health.status, "ok");
-  assert.equal(health.version, "0.2.5");
+  assert.equal(health.version, "0.2.6");
 
   const initialized = await mcpRequest("initialize", {
     protocolVersion: "2025-11-25",
@@ -171,10 +177,10 @@ try {
     idempotentHint: false,
     openWorldHint: true,
   });
-  assert.equal(toolDefinitions.render_audio._meta.ui.resourceUri, "ui://widget/elevenlabs-audio-v5.html");
+  assert.equal(toolDefinitions.render_audio._meta.ui.resourceUri, "ui://widget/elevenlabs-audio-v6.html");
   assert.equal(
     toolDefinitions.render_audio._meta["openai/outputTemplate"],
-    "ui://widget/elevenlabs-audio-v5.html",
+    "ui://widget/elevenlabs-audio-v6.html",
   );
   assert.deepEqual(toolDefinitions.render_audio.annotations, {
     readOnlyHint: true,
@@ -270,7 +276,7 @@ try {
 
   const resources = await mcpRequest("resources/list");
   assert.equal(resources.result.resources[0].mimeType, "text/html;profile=mcp-app");
-  assert.match(resources.result.resources[0].uri, /elevenlabs-audio-v5\.html$/);
+  assert.match(resources.result.resources[0].uri, /elevenlabs-audio-v6\.html$/);
   const widget = await mcpRequest("resources/read", { uri: resources.result.resources[0].uri });
   assert.deepEqual(widget.result.contents[0]._meta.ui.csp.resourceDomains, [
     `http://127.0.0.1:${appPort}`,
@@ -281,13 +287,202 @@ try {
   assert.deepEqual(widget.result.contents[0]._meta["openai/widgetCSP"].redirect_domains, [
     `http://127.0.0.1:${appPort}`,
   ]);
-  assert.doesNotMatch(widget.result.contents[0].text, /__ELEVENLABS_WIDGET_BUNDLE__/);
-  assert.match(widget.result.contents[0].text, /ui\/initialize/);
-  assert.match(widget.result.contents[0].text, /ui\/notifications\/initialized/);
-  assert.ok(widget.result.contents[0].text.length > 100_000, "The official MCP Apps bridge should be inlined");
+  const widgetHtml = widget.result.contents[0].text;
+  const widgetBytes = Buffer.byteLength(widgetHtml, "utf8");
+  assert.doesNotMatch(widgetHtml, /__ELEVENLABS_WIDGET_BUNDLE__/);
+  assert.doesNotMatch(widgetHtml, /app-with-deps|PostMessageTransport/);
+  assert.match(widgetHtml, /ui\/initialize/);
+  assert.match(widgetHtml, /2026-01-26/);
+  assert.match(widgetHtml, /ui\/notifications\/initialized/);
+  assert.match(widgetHtml, /ui\/notifications\/tool-result/);
+  assert.match(widgetHtml, /ui\/notifications\/size-changed/);
+  assert.match(widgetHtml, /ui\/open-link/);
+  assert.match(widgetHtml, /openExternal/);
+  assert.match(widgetHtml, /openai:set_globals/);
+  assert.ok(widgetBytes < 20 * 1024, `Widget must stay under 20 KB; received ${widgetBytes} bytes.`);
+
+  const moduleMatch = widgetHtml.match(/<script type="module">([\s\S]*?)<\/script>/);
+  assert(moduleMatch?.[1], "The built widget must include its manual bridge module.");
+  const postedMessages = [];
+  const listeners = new Map();
+  let renderedToolResult;
+  let intrinsicHeight;
+  let fallbackHref;
+  const parentWindow = {
+    postMessage(message) {
+      postedMessages.push(message);
+    },
+  };
+  const fakeWindow = {
+    parent: parentWindow,
+    innerWidth: 320,
+    openai: {
+      notifyIntrinsicHeight(value) {
+        intrinsicHeight = value;
+      },
+      async openExternal({ href }) {
+        fallbackHref = href;
+      },
+    },
+    __renderElevenLabsAudio(result) {
+      renderedToolResult = result;
+    },
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    setTimeout,
+    clearTimeout,
+    requestAnimationFrame(callback) {
+      callback();
+    },
+  };
+  const fakeDocument = {
+    documentElement: {
+      clientWidth: 320,
+      scrollHeight: 180,
+      style: { height: "" },
+      getBoundingClientRect() {
+        return { height: 180 };
+      },
+    },
+    body: { scrollHeight: 180 },
+  };
+  class FakeResizeObserver {
+    observe() {}
+  }
+
+  runInNewContext(moduleMatch[1], {
+    window: fakeWindow,
+    document: fakeDocument,
+    ResizeObserver: FakeResizeObserver,
+    console,
+    Error,
+    Map,
+    Math,
+    Promise,
+  });
+  await flushBridgeTasks();
+
+  const initializeMessage = postedMessages.find((message) => message.method === "ui/initialize");
+  assert(initializeMessage, "The widget bridge must start with ui/initialize.");
+  assert.equal(initializeMessage.params.protocolVersion, "2026-01-26");
+  assert.deepEqual(JSON.parse(JSON.stringify(initializeMessage.params.appInfo)), {
+    name: "ElevenLabs Audio",
+    version: "0.2.6",
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(initializeMessage.params.appCapabilities)), {});
+
+  const onBridgeMessage = listeners.get("message");
+  assert(onBridgeMessage, "The widget bridge must listen for host messages.");
+  onBridgeMessage({
+    source: parentWindow,
+    data: {
+      jsonrpc: "2.0",
+      id: initializeMessage.id,
+      result: {
+        protocolVersion: "2026-01-26",
+        hostInfo: { name: "smoke-host", version: "1.0.0" },
+        hostCapabilities: { openLinks: {} },
+        hostContext: {},
+      },
+    },
+  });
+  await flushBridgeTasks();
+
+  assert(
+    postedMessages.some((message) => message.method === "ui/notifications/initialized"),
+    "The widget bridge must notify the host after initialization.",
+  );
+  assert(
+    postedMessages.some((message) => message.method === "ui/notifications/size-changed"),
+    "The widget bridge must report its intrinsic size.",
+  );
+  assert.equal(intrinsicHeight.height, 180);
+
+  onBridgeMessage({
+    source: parentWindow,
+    data: {
+      jsonrpc: "2.0",
+      method: "ui/notifications/tool-result",
+      params: speech.result,
+    },
+  });
+  assert.equal(renderedToolResult.structuredContent.audio.url, speech.result.structuredContent.audio.url);
+
+  const openLinkPromise = fakeWindow.__elevenLabsOpenLink(speech.result.structuredContent.audio.url);
+  const openLinkMessage = postedMessages.find((message) => message.method === "ui/open-link");
+  assert(openLinkMessage, "The bridge must use the standard ui/open-link request when supported.");
+  onBridgeMessage({
+    source: parentWindow,
+    data: { jsonrpc: "2.0", id: openLinkMessage.id, result: {} },
+  });
+  await openLinkPromise;
+
+  const fallbackLinkPromise = fakeWindow.__elevenLabsOpenLink(speech.result.structuredContent.audio.url);
+  const fallbackLinkMessage = postedMessages.filter((message) => message.method === "ui/open-link").at(-1);
+  assert(fallbackLinkMessage, "The fallback test must receive an MCP open-link request first.");
+  onBridgeMessage({
+    source: parentWindow,
+    data: {
+      jsonrpc: "2.0",
+      id: fallbackLinkMessage.id,
+      error: { code: -32_000, message: "Host link policy rejected the request." },
+    },
+  });
+  await fallbackLinkPromise;
+  assert.equal(fallbackHref, speech.result.structuredContent.audio.url);
+
+  const invalidPostedMessages = [];
+  const invalidListeners = new Map();
+  const invalidParentWindow = {
+    postMessage(message) {
+      invalidPostedMessages.push(message);
+    },
+  };
+  const invalidWindow = {
+    ...fakeWindow,
+    parent: invalidParentWindow,
+    openai: {},
+    __renderElevenLabsAudio() {},
+    addEventListener(type, listener) {
+      invalidListeners.set(type, listener);
+    },
+  };
+  runInNewContext(moduleMatch[1], {
+    window: invalidWindow,
+    document: fakeDocument,
+    ResizeObserver: FakeResizeObserver,
+    console: { error() {} },
+    Error,
+    Map,
+    Math,
+    Promise,
+  });
+  await flushBridgeTasks();
+  const invalidInitializeMessage = invalidPostedMessages.find((message) => message.method === "ui/initialize");
+  assert(invalidInitializeMessage, "The malformed-handshake test must receive ui/initialize.");
+  invalidListeners.get("message")({
+    source: invalidParentWindow,
+    data: {
+      jsonrpc: "2.0",
+      id: invalidInitializeMessage.id,
+      result: {
+        protocolVersion: 20_260_126,
+        hostInfo: { name: "invalid-host" },
+        hostCapabilities: null,
+        hostContext: null,
+      },
+    },
+  });
+  await flushBridgeTasks();
+  assert.equal(
+    invalidPostedMessages.some((message) => message.method === "ui/notifications/initialized"),
+    false,
+    "The bridge must reject a malformed initialize result before announcing initialized.",
+  );
 
   console.log(
-    "Smoke test passed: health, decoupled MCP tools, saved voice preference, one-shot ElevenLabs generation, signed audio, inlined bridge, and widget resource.",
+    `Smoke test passed: health, decoupled MCP tools, one-shot ElevenLabs generation, signed audio, ${widgetBytes}-byte manual bridge widget, and initialize-to-tool-result lifecycle.`,
   );
 } finally {
   child.kill();

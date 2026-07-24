@@ -14,8 +14,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 
 const APP_NAME = "ElevenLabs Audio for ChatGPT";
-const APP_VERSION = "0.2.5";
-const TEMPLATE_URI = "ui://widget/elevenlabs-audio-v5.html";
+const APP_VERSION = "0.2.6";
+const TEMPLATE_URI = "ui://widget/elevenlabs-audio-v6.html";
 const ELEVENLABS_API_BASE = (process.env.ELEVENLABS_API_BASE ?? "https://api.elevenlabs.io").replace(/\/$/, "");
 const ELEVENLABS_API_KEY = requiredEnv("ELEVENLABS_API_KEY");
 const MCP_PATH_SECRET = validatePathSecret(requiredEnv("MCP_PATH_SECRET"));
