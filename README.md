@@ -82,7 +82,7 @@ The saved preference belongs to the deployment, not to a ChatGPT account. This i
 
 ## Run locally
 
-Requirements: Node.js 20 or newer and an ElevenLabs API key with Text to Speech and Voices read permissions.
+Requirements: Node.js 24 LTS and an ElevenLabs API key with Text to Speech and Voices read permissions.
 
 ```powershell
 Copy-Item .env.example .env
