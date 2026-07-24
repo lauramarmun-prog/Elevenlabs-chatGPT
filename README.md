@@ -9,10 +9,11 @@ Each person deploys their own private instance and supplies their own ElevenLabs
 ## What it includes
 
 - `generate_speech`: creates temporary MP3 audio with an ElevenLabs voice.
+- `render_audio`: displays an already-generated MP3 without calling ElevenLabs or consuming more credits.
 - `list_voices`: searches the voices available to the deployer's account.
 - `get_preferred_voice`: checks whether the person has already chosen a default voice.
 - `save_preferred_voice`: validates and saves a voice after the person chooses it in chat.
-- A compact audio player rendered inside ChatGPT through the MCP Apps bridge.
+- A compact audio player rendered through the official MCP Apps bridge and its initialization handshake.
 - A native temporary MP3 resource plus a direct signed link as a mobile-safe fallback when a host cannot initialize the widget.
 - Short-lived, signed audio URLs.
 - A secret, unguessable MCP path to protect the deployer's ElevenLabs credits.
@@ -76,6 +77,8 @@ Then:
 5. The voice entered during deployment is already the default. You can still try: “Help me choose another ElevenLabs voice and remember my choice.” The model can list the voices, ask which one you prefer, and save it after you answer.
 6. Later, simply ask: “Read this aloud: Hello world.” The saved voice is used automatically.
 
+For better mobile reliability, the connector uses OpenAI's decoupled data/render pattern. ChatGPT first calls `generate_speech`, waits until the MP3 is ready, and then calls the fast `render_audio` tool to mount the player. Repeating `render_audio` does not regenerate the speech or spend more ElevenLabs credits. If a ChatGPT host cannot display MCP app widgets, the signed MP3 resource and direct link remain available as fallbacks.
+
 Keep the full MCP URL private. Anyone who obtains it could consume the ElevenLabs credits attached to that deployment. Rotate `MCP_PATH_SECRET` immediately if the URL is exposed.
 
 The saved preference belongs to the deployment, not to a ChatGPT account. This is ideal for the intended one-person-per-deployment model. If several people share one deployment, they will also share its preferred voice.
@@ -135,6 +138,7 @@ The smoke test uses a local mock of the ElevenLabs API. It does not consume cred
 - [OpenAI Apps SDK quickstart](https://developers.openai.com/apps-sdk/quickstart/)
 - [Build an MCP server](https://developers.openai.com/apps-sdk/build/mcp-server/)
 - [Build a ChatGPT UI](https://developers.openai.com/apps-sdk/build/chatgpt-ui/)
+- [OpenAI decoupled data/render pattern](https://developers.openai.com/apps-sdk/build/chatgpt-ui/#decoupled-pattern)
 - [ElevenLabs create speech API](https://elevenlabs.io/docs/api-reference/text-to-speech/convert)
 - [ElevenLabs text-to-speech best practices](https://elevenlabs.io/docs/overview/capabilities/text-to-speech/best-practices)
 - [Prompting Eleven v3](https://elevenlabs.io/docs/best-practices/prompting)
@@ -149,4 +153,4 @@ MIT — see [`LICENSE`](./LICENSE).
 
 ## Español
 
-Esta plantilla crea una instancia privada del conector para cada persona. Railway solicita su propia clave de ElevenLabs y el ID de la voz que quiere usar, genera un camino MCP secreto y entrega el audio mediante un reproductor integrado en ChatGPT. La voz es obligatoria durante el despliegue, aunque después el modelo puede mostrar otras voces y guardar una elección distinta mediante `save_preferred_voice`. No hay una cuenta central ni una base de datos compartida.
+Esta plantilla crea una instancia privada del conector para cada persona. Railway solicita su propia clave de ElevenLabs y el ID de la voz que quiere usar, genera un camino MCP secreto y entrega el audio mediante un reproductor integrado en ChatGPT. Para mejorar la fiabilidad móvil, primero crea el MP3 y después abre el reproductor con una segunda herramienta rápida que no vuelve a gastar créditos; el enlace MP3 firmado permanece como alternativa. La voz es obligatoria durante el despliegue, aunque después el modelo puede mostrar otras voces y guardar una elección distinta mediante `save_preferred_voice`. No hay una cuenta central ni una base de datos compartida.

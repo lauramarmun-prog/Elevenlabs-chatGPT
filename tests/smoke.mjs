@@ -10,6 +10,7 @@ const fakeAudio = Buffer.from("ID3-fake-mp3-audio");
 const dataDir = await mkdtemp(join(tmpdir(), "elevenlabs-mcp-smoke-"));
 let lastSpeechPath = "";
 let lastSpeechBody = null;
+let speechRequestCount = 0;
 
 const missingVoiceEnv = {
   ...process.env,
@@ -69,6 +70,7 @@ const mockApi = createServer((req, res) => {
   }
 
   if (req.method === "POST" && req.url?.startsWith("/v1/text-to-speech/")) {
+    speechRequestCount += 1;
     lastSpeechPath = req.url;
     let body = "";
     req.on("data", (chunk) => (body += chunk));
@@ -140,6 +142,7 @@ try {
 
   const health = await fetch(`http://127.0.0.1:${appPort}/health`).then((response) => response.json());
   assert.equal(health.status, "ok");
+  assert.equal(health.version, "0.2.5");
 
   const initialized = await mcpRequest("initialize", {
     protocolVersion: "2025-11-25",
@@ -147,14 +150,38 @@ try {
     clientInfo: { name: "smoke-test", version: "1.0.0" },
   });
   assert.equal(initialized.result.serverInfo.name, "elevenlabs-audio");
+  assert.match(
+    initialized.result.instructions.slice(0, 512),
+    /immediately call render_audio exactly once with the returned audio_id/,
+  );
   assert.match(initialized.result.instructions, /natural conversational phrasing/);
   assert.match(initialized.result.instructions, /Never use SSML <break> tags with eleven_v3/);
 
   const tools = await mcpRequest("tools/list");
   assert.deepEqual(
     tools.result.tools.map((tool) => tool.name).sort(),
-    ["generate_speech", "get_preferred_voice", "list_voices", "save_preferred_voice"],
+    ["generate_speech", "get_preferred_voice", "list_voices", "render_audio", "save_preferred_voice"],
   );
+  const toolDefinitions = Object.fromEntries(tools.result.tools.map((tool) => [tool.name, tool]));
+  assert.equal(toolDefinitions.generate_speech._meta.ui, undefined);
+  assert.equal(toolDefinitions.generate_speech._meta["openai/outputTemplate"], undefined);
+  assert.deepEqual(toolDefinitions.generate_speech.annotations, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  });
+  assert.equal(toolDefinitions.render_audio._meta.ui.resourceUri, "ui://widget/elevenlabs-audio-v5.html");
+  assert.equal(
+    toolDefinitions.render_audio._meta["openai/outputTemplate"],
+    "ui://widget/elevenlabs-audio-v5.html",
+  );
+  assert.deepEqual(toolDefinitions.render_audio.annotations, {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  });
 
   const voices = await mcpRequest("tools/call", {
     name: "list_voices",
@@ -183,6 +210,7 @@ try {
     arguments: { text: "Hello from the smoke test.", output_format: "mp3_44100_128" },
   });
   assert.equal(speech.result.structuredContent.status, "ready");
+  assert.match(speech.result.structuredContent.audio_id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   assert.equal(speech.result.structuredContent.model_id, "eleven_v3");
   assert.equal(speech.result.structuredContent.audio.url, speech.result._meta.audio.url);
   assert.equal(speech.result.structuredContent.audio.mime_type, "audio/mpeg");
@@ -196,10 +224,41 @@ try {
   assert.equal(audioResource.uri, speech.result._meta.audio.url);
   assert.equal(audioResource.mimeType, "audio/mpeg");
   assert.equal(audioResource.size, fakeAudio.length);
+  assert.equal(speechRequestCount, 1);
+
+  const rendered = await mcpRequest("tools/call", {
+    name: "render_audio",
+    arguments: { audio_id: speech.result.structuredContent.audio_id },
+  });
+  assert.equal(rendered.result.structuredContent.audio_id, speech.result.structuredContent.audio_id);
+  assert.deepEqual(rendered.result.structuredContent.audio, speech.result.structuredContent.audio);
+  assert.equal(rendered.result.structuredContent.expires_at, speech.result.structuredContent.expires_at);
+  assert.deepEqual(rendered.result._meta.audio, speech.result._meta.audio);
+  assert.equal(
+    rendered.result.content.find((item) => item.type === "resource_link")?.uri,
+    speech.result.structuredContent.audio.url,
+  );
+  assert.equal(speechRequestCount, 1, "render_audio must not make another ElevenLabs request");
+
+  const renderedAgain = await mcpRequest("tools/call", {
+    name: "render_audio",
+    arguments: { audio_id: speech.result.structuredContent.audio_id },
+  });
+  assert.equal(renderedAgain.result.structuredContent.audio.url, rendered.result.structuredContent.audio.url);
+  assert.equal(speechRequestCount, 1, "render_audio must remain idempotent");
+
+  const missingAudio = await mcpRequest("tools/call", {
+    name: "render_audio",
+    arguments: { audio_id: "00000000-0000-4000-8000-000000000000" },
+  });
+  assert.equal(missingAudio.result.isError, true);
+  assert.match(missingAudio.result.content[0].text, /Audio is no longer available/);
 
   const audioResponse = await fetch(speech.result._meta.audio.url);
   assert.equal(audioResponse.status, 200);
   assert.equal(audioResponse.headers.get("accept-ranges"), "bytes");
+  assert.equal(audioResponse.headers.get("access-control-allow-origin"), "*");
+  assert.equal(audioResponse.headers.get("cross-origin-resource-policy"), "cross-origin");
   assert.deepEqual(Buffer.from(await audioResponse.arrayBuffer()), fakeAudio);
 
   const partialAudioResponse = await fetch(speech.result._meta.audio.url, {
@@ -211,13 +270,25 @@ try {
 
   const resources = await mcpRequest("resources/list");
   assert.equal(resources.result.resources[0].mimeType, "text/html;profile=mcp-app");
-  assert.match(resources.result.resources[0].uri, /elevenlabs-audio-v3\.html$/);
+  assert.match(resources.result.resources[0].uri, /elevenlabs-audio-v5\.html$/);
   const widget = await mcpRequest("resources/read", { uri: resources.result.resources[0].uri });
-  assert.deepEqual(widget.result.contents[0]._meta["openai/widgetCSP"].connect_domains, [
+  assert.deepEqual(widget.result.contents[0]._meta.ui.csp.resourceDomains, [
     `http://127.0.0.1:${appPort}`,
   ]);
+  assert.equal(widget.result.contents[0]._meta.ui.domain, undefined);
+  assert.equal(widget.result.contents[0]._meta["openai/widgetDomain"], undefined);
+  assert.equal(widget.result.contents[0]._meta["openai/widgetCSP"].connect_domains, undefined);
+  assert.deepEqual(widget.result.contents[0]._meta["openai/widgetCSP"].redirect_domains, [
+    `http://127.0.0.1:${appPort}`,
+  ]);
+  assert.doesNotMatch(widget.result.contents[0].text, /__ELEVENLABS_WIDGET_BUNDLE__/);
+  assert.match(widget.result.contents[0].text, /ui\/initialize/);
+  assert.match(widget.result.contents[0].text, /ui\/notifications\/initialized/);
+  assert.ok(widget.result.contents[0].text.length > 100_000, "The official MCP Apps bridge should be inlined");
 
-  console.log("Smoke test passed: health, MCP tools, saved voice preference, ElevenLabs mock, signed audio, and widget resource.");
+  console.log(
+    "Smoke test passed: health, decoupled MCP tools, saved voice preference, one-shot ElevenLabs generation, signed audio, inlined bridge, and widget resource.",
+  );
 } finally {
   child.kill();
   await new Promise((resolve) => mockApi.close(resolve));

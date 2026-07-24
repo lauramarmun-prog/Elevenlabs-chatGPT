@@ -101,7 +101,7 @@
       <div id="content" class="empty" role="status">Preparing the player…</div>
     </main>
 
-    <script type="module">
+    <script>
       const content = document.querySelector("#content");
       const details = document.querySelector("#details");
       let lastUrl = "";
@@ -153,7 +153,15 @@
 
       function render(result) {
         const audio = safeAudioPayload(result);
-        if (!audio || audio.url === lastUrl) return;
+        if (!audio) return;
+        if (audio.url === lastUrl) {
+          details.textContent = audio.modelId;
+          const expiry = content.querySelector(".expiry");
+          if (expiry && audio.expiresAt) {
+            expiry.textContent = `Available until ${new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(audio.expiresAt))}`;
+          }
+          return;
+        }
         lastUrl = audio.url;
         content.className = "";
         content.replaceChildren();
@@ -178,6 +186,15 @@
         download.target = "_blank";
         download.rel = "noopener noreferrer";
         download.textContent = "Open MP3";
+        download.addEventListener("click", (event) => {
+          if (typeof window.__elevenLabsOpenLink !== "function") return;
+          event.preventDefault();
+          void window.__elevenLabsOpenLink(audio.url).catch(() => {
+            window.__elevenLabsOpenLink = undefined;
+            download.textContent = "Open MP3 directly";
+            details.textContent = "Tap Open MP3 directly to use the browser fallback.";
+          });
+        });
         player.addEventListener("error", () => {
           details.textContent = "The embedded player could not load on this device.";
           const message = document.createElement("div");
@@ -190,6 +207,8 @@
         details.textContent = audio.modelId;
         player.load();
       }
+
+      window.__renderElevenLabsAudio = render;
 
       window.addEventListener("message", (event) => {
         if (event.source !== window.parent) return;
@@ -211,6 +230,16 @@
         toolResponseMetadata: window.openai?.toolResponseMetadata,
       });
 
+      let pollAttempts = 0;
+      const globalsPoll = window.setInterval(() => {
+        pollAttempts += 1;
+        render({
+          structuredContent: window.openai?.toolOutput,
+          toolResponseMetadata: window.openai?.toolResponseMetadata,
+        });
+        if (lastUrl || pollAttempts >= 40) window.clearInterval(globalsPoll);
+      }, 250);
+
       window.setTimeout(() => {
         if (lastUrl) return;
         content.className = "error";
@@ -218,5 +247,6 @@
         details.textContent = "Mobile-safe MP3 fallback available";
       }, 4000);
     </script>
+    <script type="module">/* __ELEVENLABS_WIDGET_BUNDLE__ */</script>
   </body>
 </html>

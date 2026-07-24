@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import {
   RESOURCE_MIME_TYPE,
@@ -15,8 +14,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 
 const APP_NAME = "ElevenLabs Audio for ChatGPT";
-const APP_VERSION = "0.2.4";
-const TEMPLATE_URI = "ui://widget/elevenlabs-audio-v3.html";
+const APP_VERSION = "0.2.5";
+const TEMPLATE_URI = "ui://widget/elevenlabs-audio-v5.html";
 const ELEVENLABS_API_BASE = (process.env.ELEVENLABS_API_BASE ?? "https://api.elevenlabs.io").replace(/\/$/, "");
 const ELEVENLABS_API_KEY = requiredEnv("ELEVENLABS_API_KEY");
 const MCP_PATH_SECRET = validatePathSecret(requiredEnv("MCP_PATH_SECRET"));
@@ -40,16 +39,17 @@ const HAS_PERSISTENT_DATA_DIR = Boolean(PERSISTENT_DATA_DIR);
 const DATA_DIR = resolve(PERSISTENT_DATA_DIR || "data");
 const PREFERENCE_FILE = resolve(DATA_DIR, "voice-preference.json");
 
-const widgetHtml = readFileSync(
-  fileURLToPath(new URL("../public/audio-widget.html", import.meta.url)),
-  "utf8",
-);
+const widgetHtml = readFileSync(resolve("dist/audio-widget.html"), "utf8");
 
 type CachedAudio = {
   bytes: Buffer;
   contentType: string;
   fileName: string;
   expiresAt: number;
+  voiceId: string;
+  modelId: string;
+  outputFormat: string;
+  characterCount: number;
 };
 
 type VoicePreference = {
@@ -147,7 +147,11 @@ function pruneAudioCache(now = Date.now()): void {
   }
 }
 
-function cacheAudio(bytes: Buffer, contentType: string): { id: string; expiresAt: number; fileName: string } {
+function cacheAudio(
+  bytes: Buffer,
+  contentType: string,
+  metadata: Pick<CachedAudio, "voiceId" | "modelId" | "outputFormat" | "characterCount">,
+): { id: string; entry: CachedAudio } {
   pruneAudioCache();
   if (bytes.length > MAX_SINGLE_AUDIO_BYTES) {
     throw new Error(`Generated audio is too large (${bytes.length} bytes).`);
@@ -156,10 +160,16 @@ function cacheAudio(bytes: Buffer, contentType: string): { id: string; expiresAt
   const id = randomUUID();
   const expiresAt = Date.now() + AUDIO_TTL_SECONDS * 1000;
   const fileName = `elevenlabs-${id}.mp3`;
-  audioCache.set(id, { bytes, contentType, fileName, expiresAt });
+  const entry = { bytes, contentType, fileName, expiresAt, ...metadata };
+  audioCache.set(id, entry);
   cachedAudioBytes += bytes.length;
   pruneAudioCache();
-  return { id, expiresAt, fileName };
+  return { id, entry };
+}
+
+function getCachedAudio(audioId: string): CachedAudio | null {
+  pruneAudioCache();
+  return audioCache.get(audioId) ?? null;
 }
 
 function signAudio(id: string, expiresAt: number): string {
@@ -262,7 +272,7 @@ function createMcpServer(origin: string): McpServer {
     { name: "elevenlabs-audio", version: APP_VERSION },
     {
       instructions:
-        `When no voice is named, call get_preferred_voice. If none is configured, call list_voices, ask the user which voice they want, and call save_preferred_voice only after they choose. Use generate_speech only when the user explicitly wants audio. Generated audio is temporary.\n\n${SPEECH_PROMPTING_GUIDANCE}`,
+        `To create audio, call generate_speech exactly once. After it succeeds, immediately call render_audio exactly once with the returned audio_id before replying to the user. Never call generate_speech again merely to render the player, and never invent an audio_id. Keep the signed MP3 link as the fallback when a host cannot display the widget. When no voice is named, call get_preferred_voice. If none is configured, call list_voices, ask the user which voice they want, and call save_preferred_voice only after they choose. Use generate_speech only when the user explicitly wants audio. Generated audio is temporary.\n\n${SPEECH_PROMPTING_GUIDANCE}`,
     },
   );
 
@@ -275,17 +285,14 @@ function createMcpServer(origin: string): McpServer {
         _meta: {
           ui: {
             prefersBorder: true,
-            domain: origin,
             csp: {
-              connectDomains: [origin],
               resourceDomains: [origin],
             },
           },
           "openai/widgetPrefersBorder": true,
-          "openai/widgetDomain": origin,
           "openai/widgetCSP": {
-            connect_domains: [origin],
             resource_domains: [origin],
+            redirect_domains: [origin],
           },
           "openai/widgetDescription":
             "A compact audio player for speech generated with the deployer's ElevenLabs account.",
@@ -513,6 +520,7 @@ function createMcpServer(origin: string): McpServer {
       },
       outputSchema: {
         status: z.literal("ready"),
+        audio_id: z.string().uuid(),
         voice_id: z.string(),
         model_id: z.string(),
         output_format: z.string(),
@@ -528,14 +536,12 @@ function createMcpServer(origin: string): McpServer {
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
-        openWorldHint: false,
+        openWorldHint: true,
         idempotentHint: false,
       },
       _meta: {
-        ui: { resourceUri: TEMPLATE_URI },
-        "openai/outputTemplate": TEMPLATE_URI,
         "openai/toolInvocation/invoking": "Giving the words a voice…",
-        "openai/toolInvocation/invoked": "Your audio is ready.",
+        "openai/toolInvocation/invoked": "Audio generated.",
       },
     },
     async ({ text, voice_id, model_id, language_code, output_format, voice_settings }) => {
@@ -564,13 +570,19 @@ function createMcpServer(origin: string): McpServer {
       if (advertisedLength > MAX_SINGLE_AUDIO_BYTES) throw new Error("Generated audio exceeds the configured size limit.");
       const bytes = Buffer.from(await response.arrayBuffer());
       const contentType = response.headers.get("content-type")?.split(";")[0] || "audio/mpeg";
-      const cached = cacheAudio(bytes, contentType);
-      const expiresAtIso = new Date(cached.expiresAt).toISOString();
-      const audioUrl = signedAudioUrl(origin, cached.id, cached.expiresAt);
+      const cached = cacheAudio(bytes, contentType, {
+        voiceId: selectedVoiceId,
+        modelId: selectedModelId,
+        outputFormat: output_format,
+        characterCount: text.length,
+      });
+      const expiresAtIso = new Date(cached.entry.expiresAt).toISOString();
+      const audioUrl = signedAudioUrl(origin, cached.id, cached.entry.expiresAt);
 
       return {
         structuredContent: {
           status: "ready" as const,
+          audio_id: cached.id,
           voice_id: selectedVoiceId,
           model_id: selectedModelId,
           output_format,
@@ -579,19 +591,19 @@ function createMcpServer(origin: string): McpServer {
           audio: {
             url: audioUrl,
             mime_type: contentType,
-            file_name: cached.fileName,
+            file_name: cached.entry.fileName,
             size_bytes: bytes.length,
           },
         },
         content: [
           {
             type: "text",
-            text: `The ElevenLabs audio is ready. Open or download the temporary MP3 here: ${audioUrl} (available until ${expiresAtIso}).`,
+            text: `The ElevenLabs audio is ready. Call render_audio now with audio_id "${cached.id}" to display the inline player. The temporary MP3 fallback is ${audioUrl} (available until ${expiresAtIso}).`,
           },
           {
             type: "resource_link",
             uri: audioUrl,
-            name: cached.fileName,
+            name: cached.entry.fileName,
             title: "Open ElevenLabs audio",
             description: `Temporary MP3 available until ${expiresAtIso}.`,
             mimeType: contentType,
@@ -602,7 +614,100 @@ function createMcpServer(origin: string): McpServer {
           audio: {
             url: audioUrl,
             mimeType: contentType,
-            fileName: cached.fileName,
+            fileName: cached.entry.fileName,
+          },
+        },
+      };
+    },
+  );
+
+  registerAppTool(
+    server,
+    "render_audio",
+    {
+      title: "Show the ElevenLabs audio player",
+      description:
+        "Use this immediately after generate_speech succeeds. Pass its exact audio_id. This only displays already-generated audio and never generates speech or consumes additional ElevenLabs credits.",
+      inputSchema: {
+        audio_id: z
+          .string()
+          .uuid()
+          .describe("The exact audio_id returned by generate_speech. Do not invent an ID or pass a URL."),
+      },
+      outputSchema: {
+        status: z.literal("ready"),
+        audio_id: z.string().uuid(),
+        voice_id: z.string(),
+        model_id: z.string(),
+        output_format: z.string(),
+        character_count: z.number().int(),
+        expires_at: z.string(),
+        audio: z.object({
+          url: z.string().url(),
+          mime_type: z.string(),
+          file_name: z.string(),
+          size_bytes: z.number().int(),
+        }),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+        idempotentHint: true,
+      },
+      _meta: {
+        ui: { resourceUri: TEMPLATE_URI },
+        "openai/outputTemplate": TEMPLATE_URI,
+        "openai/toolInvocation/invoking": "Opening the audio player…",
+        "openai/toolInvocation/invoked": "Audio player ready.",
+      },
+    },
+    async ({ audio_id }) => {
+      const entry = getCachedAudio(audio_id);
+      if (!entry) {
+        throw new Error("Audio is no longer available. Call generate_speech again.");
+      }
+
+      const expiresAtIso = new Date(entry.expiresAt).toISOString();
+      const audioUrl = signedAudioUrl(origin, audio_id, entry.expiresAt);
+      const structuredContent = {
+        status: "ready" as const,
+        audio_id,
+        voice_id: entry.voiceId,
+        model_id: entry.modelId,
+        output_format: entry.outputFormat,
+        character_count: entry.characterCount,
+        expires_at: expiresAtIso,
+        audio: {
+          url: audioUrl,
+          mime_type: entry.contentType,
+          file_name: entry.fileName,
+          size_bytes: entry.bytes.length,
+        },
+      };
+
+      return {
+        structuredContent,
+        content: [
+          {
+            type: "text",
+            text: `The inline ElevenLabs player is ready. The temporary MP3 remains available until ${expiresAtIso}.`,
+          },
+          {
+            type: "resource_link",
+            uri: audioUrl,
+            name: entry.fileName,
+            title: "Open ElevenLabs audio",
+            description: `Temporary MP3 available until ${expiresAtIso}.`,
+            mimeType: entry.contentType,
+            size: entry.bytes.length,
+          },
+        ],
+        _meta: {
+          audio: {
+            url: audioUrl,
+            mimeType: entry.contentType,
+            fileName: entry.fileName,
           },
         },
       };
@@ -655,6 +760,8 @@ function serveAudio(req: IncomingMessage, res: ServerResponse, url: URL): boolea
     "Content-Type": entry.contentType,
     "Content-Disposition": `inline; filename="${entry.fileName}"`,
     "Cache-Control": "private, max-age=60",
+    "Access-Control-Allow-Origin": "*",
+    "Cross-Origin-Resource-Policy": "cross-origin",
     "X-Content-Type-Options": "nosniff",
     "Accept-Ranges": "bytes",
   };

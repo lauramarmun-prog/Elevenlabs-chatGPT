@@ -1,6 +1,6 @@
 {
   "name": "elevenlabs-chatgpt-mcp",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "A self-hosted ElevenLabs text-to-speech MCP app for ChatGPT, ready for Railway.",
   "type": "module",
   "private": true,
@@ -8,8 +8,10 @@
     "node": "24.x"
   },
   "scripts": {
+    "predev": "npm run build:widget",
     "dev": "node --env-file-if-exists=.env --import tsx src/server.ts",
-    "build": "tsc -p tsconfig.json",
+    "build:widget": "node scripts/build-widget.mjs",
+    "build": "tsc -p tsconfig.json && npm run build:widget",
     "start": "node dist/server.js",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node tests/smoke.mjs"
@@ -21,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "esbuild": "^0.28.1",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   },
